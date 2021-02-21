@@ -3,11 +3,11 @@ import './index.css'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls' 
 import fragmentShader from './fragment.glsl'
 import vertexShader from './vertex.glsl'
-import { VertexNormalsHelper } from 'three/examples/jsm/helpers/VertexNormalsHelper'
 import Stats from 'stats.js'
 import { GUI } from 'dat.gui'
+import { Colors } from 'three'
 
-let renderer, scene, camera, controls, uniforms, clock, geo, normalsHelper, stats, gui, mat
+let renderer, scene, camera, controls, uniforms, clock, geo, stats, gui, mat, directionalLight
 const rootEl = document.querySelector('#root')
 const waves = []
 const params = {
@@ -26,12 +26,12 @@ const params = {
 function init() {
   renderer = new THREE.WebGLRenderer({antialias: true})
   scene = new THREE.Scene()
-  camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, .1, 1000)
-  camera.position.z = 70
-  camera.position.y = 25
+  camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, .1, 10000)
+  camera.position.z = 100
+  camera.position.y = 20
   camera.lookAt(scene.position)
 
-  renderer.shadowMapEnabled = true;
+  renderer.shadowMap.enabled = true;
   renderer.shadowMapSoft = true;
 
   renderer.shadowCameraNear = .1;
@@ -53,39 +53,55 @@ function init() {
   stats.showPanel(0)
   document.body.appendChild(stats.dom)
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, .17);
+  directionalLight = new THREE.DirectionalLight(0xffffff, .17);
   directionalLight.castShadow = true
-  directionalLight.position.y = 10
-  directionalLight.position.z = -20
+  directionalLight.position.y = 200
+  directionalLight.position.z = -1000
   directionalLight.position.x = 0
   scene.add(directionalLight)
 
+  // const pointLight = new THREE.PointLight(0xffffff, .17);
+  // pointLight.castShadow = true
+  // pointLight.position.y = 200
+  // pointLight.position.z = -20
+  // pointLight.position.x = 0
+  // scene.add(pointLight)
+
   const directionLightHelper = new THREE.DirectionalLightHelper(directionalLight, 1)
-  // scene.add(directionLightHelper)
+  scene.add(directionLightHelper)
+
+  // const pointLightHelper = new THREE.PointLightHelper(pointLight, 1)
+  // scene.add(pointLightHelper)
 
   const ambientLight = new THREE.AmbientLight(0xffffff, .1)
   scene.add(ambientLight)
 
+  addWaves()
+  addPlane()
+
   gui = new GUI()
-  const generic = gui.addFolder('Generic')
-  generic.add(params, 'waveSpeed', 0, 10, .1)
-  generic.add(params, 'waveHeight', 0, 1, .01)
-  generic.add(params, 'waveFrequency', 0, 10, .01)
-  generic.add(params, 'peak', 1, 8, .1)
-  generic.add(params, 'circular')
+  const generic = gui.addFolder('Wave')
+  
+  generic.add(uniforms.u_waveHeight, 'value', 0, 10, .01).name('height')
+  generic.add(uniforms.u_waveFrequency, 'value', 0, .5, .001).name('frequency')
+  generic.add(uniforms.u_peak, 'value', 1, 8, .1).name('peak')
+  generic.add(uniforms.u_waveSpeed, 'value', 0, 10, .1).name('speed')
+  generic.add(uniforms.shininess, 'value', 0, 100, .1).name('shininess')
   generic.open()
+
   const material = gui.addFolder('Material')
+  
   material.add(params, 'shininess', 0, 100, .1)
     .onChange(() => {
       mat.shininess = params.shininess
     })
   material.addColor(params, 'specular')
     .onChange(() => {
-      mat.specular.set(params.specular)
+      mat.u_specular.set(params.specular)
     })
   material.addColor(params, 'emissive')
     .onChange(() => {
-      mat.emissive.set(params.emissive)
+      mat.uniforms.u_emissive.value = new THREE.Color(params.emissive)
     })
   material.add(params, 'wireframe')
     .onChange(() => {
@@ -104,8 +120,6 @@ function init() {
   gui.domElement.style.right = 0
   gui.domElement.style.top = 0
 
-  addWaves()
-  addPlane()
   //addCube()
 
   setSize()
@@ -113,38 +127,77 @@ function init() {
 }
 
 function addPlane() {
-  uniforms = {
-    u_time: { type: 'f', value: 1.0 },
-    colorA: { type: 'vec3', value: new THREE.Color(0x74ebd5) },
-    colorB: { type: 'vec3', value: new THREE.Color(0xACB6E5) }
-  }
+
+  uniforms = THREE.UniformsUtils.merge([
+    THREE.ShaderLib.phong.uniforms,
+    {
+      u_time: { type: 'f', value: 1.0 },
+      u_specular: {value: new THREE.Color(0xffffff) },
+      u_emissive: {value: new THREE.Color(0xffffff) },
+      // color: { type: 'vec3', value: new THREE.Color(0x74ebd5) },
+      // emissive: { type: 'vec3', value: new THREE.Color(0x124860) },
+      shininess: { type: 'f', value: 80. },
+      opacity: { type: 'f', value: 1. },
+      u_resolution: { type: "v2", value: new THREE.Vector2(innerWidth, innerHeight) },
+      u_wave1Length: { type: 'f', value: 5. },
+      u_wave1Amplitude: { type: 'f', value: 3. },
+      u_wave1Dir: { type: 'vec2', value: new THREE.Vector2(.3, .5) },
+      u_wave1Speed: { type: 'f', value: 2.},
+      u_wave2Length: { type: 'f', value: 5. },
+      u_wave2Amplitude: { type: 'f', value: 2. },
+      u_wave2Dir: { type: 'vec2', value: new THREE.Vector2(1, .3) },
+      u_wave2Speed: { type: 'f', value: 2.},
+      u_wave3Length: { type: 'f', value: 5. },
+      u_wave3Amplitude: { type: 'f', value: 2. },
+      u_wave3Dir: { type: 'vec2', value: new THREE.Vector2(.8, .1) },
+      u_wave3Speed: { type: 'f', value: 2.5},
+      u_peak: {type: 'f', value: 1.3},
+      u_waveFrequency: {type: 'f', value: 0.5},
+      u_waveSpeed: {type: 'f', value: 1.5},
+      u_waveHeight: {type: 'f', value: .27},
+      u_lightPos: {type: 'vec3', value: new THREE.Vector3()},
+    }
+  ])
 
   const size = 100
-  const resolution = 1
+  const resolution = .4
 
   geo = new THREE.PlaneBufferGeometry(size, size, Math.round(size * resolution), Math.round(size * resolution))
-  // const mat = new THREE.ShaderMaterial({
-  //   vertexShader,
-  //   fragmentShader,
-  //   uniforms,
-  //   side: THREE.DoubleSide,
-  //   wireframe: true
-  // })
-  mat = new THREE.MeshPhongMaterial({ 
-    wireframe: false, 
-    color: 0x74ebd5,
-    side: THREE.FrontSide,
-    shininess: 80,
-    specular: 0xffffff,
-    emissive: 0x124860
+  mat = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader,
+    uniforms,
+    side: THREE.DoubleSide,
+    lights: true,
+    wireframe: false,
+    emissive: params.emissive,
+    specular: params.specular
   })
+
+  // mat = new THREE.MeshPhongMaterial({color: 0x74ebd5})
+
+  // mat.onBeforeCompile = shader => {
+  //   shader.vertexShader = vertexShader
+  //   Object.assign(shader.uniforms, uniforms)
+  // }
+
+  // mat = new THREE.MeshPhongMaterial({ 
+  //   wireframe: false, 
+  //   color: 0x74ebd5,
+  //   side: THREE.FrontSide,
+  //   shininess: 80,
+  //   specular: 0xffffff,
+  //   emissive: 0x124860
+  // })
   
   const mesh = new THREE.Mesh(geo, mat)
   mesh.rotation.x = -Math.PI / 2
   mesh.receiveShadow = true
   scene.add(mesh)
 
-  normalsHelper = new VertexNormalsHelper(mesh, .2, 0x00ff00, 1)
+  console.log(geo)
+
+  // normalsHelper = new VertexNormalsHelper(mesh, .2, 0x00ff00, 1)
   // scene.add(normalsHelper)
 }
 
@@ -197,6 +250,8 @@ function setSize() {
   camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(innerWidth, innerHeight)
+  // uniforms.u_resolution.value.x = innerWidth
+  // uniforms.u_resolution.value.y = innerHeight
 }
 
 function animate() {
@@ -209,36 +264,9 @@ function animate() {
 
 function render() {
   uniforms.u_time.value = clock.getElapsedTime()
-  const elapsed = clock.getElapsedTime()
-  const positions = geo.attributes.position.array
-
-  for (let i = 2; i < positions.length; i+=3) {
-    const x = positions[i - 2]
-    const y = positions[i - 1]
-    let z = 0
-
-    for (let ii = 0; ii < waves.length; ii++) {
-      const { amplitude, direction, frequency, phase, speed } = waves[ii]
-      const { waveSpeed, waveHeight, waveFrequency, peak } = params
-      const vectorXY = new THREE.Vector2(x, y)
-      
-      // z += amplitude * waveHeight * Math.sin(
-      //   direction.dot(vectorXY) * frequency * waveFrequency + elapsed * speed * phase * waveSpeed
-      // )
-
-      z += 2 * amplitude * waveHeight * Math.pow(
-        (Math.sin(direction.dot(vectorXY) * frequency * waveFrequency + elapsed * speed * phase * waveSpeed) + 1) / 2, 
-        peak
-      )
-    }
-
-    geo.attributes.position.array[i] = z;
-  }
-
-  geo.attributes.position.needsUpdate = true
-  geo.computeVertexNormals()
-  normalsHelper.update()
-
+  // geo.attributes.position.needsUpdate = true
+  // geo.computeVertexNormals()
+  // normalsHelper.update()
   renderer.render(scene, camera)
 }
 
